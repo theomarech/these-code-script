@@ -24,7 +24,7 @@ table_pmp_fun <- join_all(list_fun[c("poi","mac","phy")],type="inner",by="code_l
 
 
 # Données environnementales -----------------------------------------------------
-env_pc <- read_csv("C:/Users/marec/OneDrive/Bureau/bureau_these_theo_confi2/Data/DATA/ENV/ENV/env_physicochimie_peh.csv") %>% 
+env_pc <- read_csv("C:/Users/marec/OneDrive/Bureau/bureau_these_theo_confi2/Data/DATA/ENV/ENV/env_physicochimie_pri.csv") %>% 
   dplyr::select(code_lac,
                 ammo = ammonium,
                 azote = azote_kjeldahl,
@@ -90,12 +90,12 @@ table_env <- join_all(list(env_pc,env_morpho,env_alter,env_charli),type="full") 
          chla = ifelse(chla == 0,NA,chla),
          oxy = ifelse(oxy < 0,0,oxy)) %>% 
   as.data.frame()
-
+table_env$ammo %>% fun_boxcox()
 table_env_boxcox <- table_env %>% dplyr::select(code_lac,
                                                 ammo:perimetre_pla,
                                                 prof_max_pla:alcalinite,
                                                 tps_sej_moy:altitude,
-                                                substrat_shannon,temp_ampli) %>% mutate_if(is.numeric,~fun_boxcox(.+0.1))
+                                                substrat_shannon,temp_ampli) %>% mutate_if(is.numeric,~fun_boxcox(.+1))
 
 table_env_pourc <- table_env %>% dplyr::select(AGS:WLS,p_alter) %>% mutate_if(is.numeric,~asin(sqrt(.)))
 
