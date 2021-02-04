@@ -1,0 +1,13 @@
+---
+title: "présentation résultats"
+author: "Theo MARECHAL"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r, librairie et fonction,include = FALSE,echo = FALSE}
+pckg <- c("dplyr","tidyr","lubridate","ggplot2","purrr","tibble","stringr","readr")
+lapply(pckg,require,character.only = TRUE)
+
+```
+
