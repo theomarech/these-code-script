@@ -1,0 +1,43 @@
+##########################################################################################################
+########
+########                                 OUVERTURE DES DONNEES
+########
+##########################################################################################################
+source("/home/theo/Bureau/scriptR/librairies.R")
+
+fun_select_NA <- function(df,seuil_NA = 0.3){
+  df %>%
+    dplyr::select(
+      which(
+        map_lgl(.,
+                ~ is.na(.) %>% sum() / na.omit(.) %>% length()<seuil_NA
+                ) %>% 
+          as.vector()
+        )
+      ) %>%
+    mutate_if(is.character,as.factor)
+}
+
+######################### DONNEES COMMUNAUTES 
+
+com_poissons <- read_csv("/home/theo/Bureau/Data/Données finales/communautés/df_poissons.csv")
+com_macrophytes <- read_csv("/home/theo/Bureau/Data/Données finales/communautés/df_macrophytes.csv")
+com_phytoplancton <- read_csv("/home/theo/Bureau/Data/Données finales/communautés/df_phytoplanctons.csv")
+com_macroinvertebres <- read_csv("/home/theo/Bureau/Data/Données finales/communautés/df_macroinvertebres.csv")
+
+
+######################### DONNEES TRAITS
+
+traits_poissons <- read_csv("/home/theo/Bureau/Data/Données finales/traits/traits_poissons_jointure.csv")
+traits_macrophytes <- read_csv("/home/theo/Bureau/Data/Données finales/traits/traits_macrophytes_final.csv")
+traits_phytoplancton <- read_csv("/home/theo/Bureau/Data/Données finales/traits/traits_phyto.csv")
+traits_macroinvertebres <- read_csv("/home/theo/Bureau/Data/Données finales/traits/traits_macroinvertebres.csv")
+
+
+fun_select_NA(traits_macroinvertebres) %>% na.omit() %>% dplyr::select(-c(nom_taxo,famille,genre)) %>% dudi.hillsmith() %>% biplot()
+
+com_macroinvertebres %>% 
+  dplyr::select(nom_taxo)%>% 
+  distinct() %>% 
+  dplyr::filter(!nom_taxo %in% c(traits_macroinvertebres$nom_taxo %>% unique())) %>% View()
+

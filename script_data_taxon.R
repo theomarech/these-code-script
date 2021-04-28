@@ -1,0 +1,507 @@
+
+source("C:/Users/marec/OneDrive/Bureau/bureau_these_theo_confi2/scriptR/librairies.R",encoding = "UTF-8")
+
+########################### CONNEXION BDD PLAN D'EAU  ############################
+
+drv <-
+  dbDriver("PostgreSQL") #interface avec système de gestion de base de données
+
+# 10.13.192.149
+# "195.221.114.149"
+con <- dbConnect(
+  drv,
+  dbname = "bd_plando",
+  host = "10.13.192.149",
+  port = 5434,
+  user = "theo.marechal",
+  password = theo
+)
+con_ac <- dbConnect(
+  drv,
+  dbname = "bd_alber_charli",
+  host = "10.13.192.149",
+  port = 5434,
+  user = "theo.marechal",
+  password = theo
+)
+# str_subset(dbListTables(con),"tsa_sup")
+# cd_support <- dbGetQuery(con,paste("SELECT * FROM ",str_subset(dbListTables(con),"tsa_sup"))) %>% as_tibble()%>% dplyr::select(cd_sup,support_prelev=lb_sup)
+# cd_support %>% dplyr::filter(cd_sup==6)
+# 
+# str_subset(dbListTables(con),"tsa_n430")
+# cd_zone_verticale <- dbGetQuery(con,paste("SELECT * FROM ",str_subset(dbListTables(con),"tsa_n430"))) %>% as_tibble() %>% dplyr::select(cd,zone_prosp=mnemo)
+# cd_zone_verticale %>% View()
+# #####################################   Ouverture des code_taxons #####################################
+# ################## FONCTION taxonomie #######################
+# df_code_taxon <-
+#   bind_rows(
+#     unique(df_cd_taxon_macrophytes),
+#     unique(df_cd_taxon_poissons),
+#     unique(df_macroinvertebre),
+#     unique(df_phytoplancton)
+#   )
+# #### animalia : 5217 ; Bacteria : 6276 ; plantae : 4745
+# 
+# 
+# df_code_d <-
+#   dbGetQuery(con,
+#              "SELECT * FROM tsa_appellation_taxon_apt")
+# 
+# 
+# 
+# df_code <-
+#   dbGetQuery(con,
+#              "SELECT * FROM tsa_appellation_taxon_apt") %>%
+#   left_join(df_niveau_taxonomique, by = "cd_niv_apt") %>%
+#   dplyr::rename(., niveau_taxo = LbElement)
+# 
+# 
+# a <- fun_remonter_codetaxon(df_code_taxon, df_code)
+
+df_niveau_taxonomique <-
+  read_csv("/home/theo/Bureau/Data/df_code_niveau_taxonomique_SANDRE.csv") %>%
+  mutate(cd_niv_apt = as.character(cd_niv_apt))
+
+df_code_taxon_final <-
+  read.csv("/home/theo/Bureau/Data/code_taxons.csv")
+
+table_appellation_taxon <- dbGetQuery(con, "SELECT cd_apt,nom_latin_apt,cd_niv_apt FROM tsa_appellation_taxon_apt" )
+df_noms_taxons <- table_appellation_taxon %>% 
+  inner_join(df_niveau_taxonomique, by=c("cd_niv_apt")) %>% 
+  mutate(cd_apt = as.integer(cd_apt)) %>% 
+  inner_join(df_code_taxon_final,  by =c("cd_apt"="code_retenu")) %>% 
+  dplyr::rename("code_retenu"=cd_apt,"niveau_taxo"=LbElement,"nom_taxo" = nom_latin_apt) %>% 
+  as_tibble() %>%
+  dplyr::select(-c(cd_niv_apt,Inconnu))
+
+
+
+
+
+################################################################################################################
+################################ Les données par groupes d'espèces suivant les tables ##########################
+################################################################################################################
+
+
+################################### prélèvement biologique #####################################################
+table_zone_inv <- dbGetQuery(con,"SELECT * FROM zone_inv")
+table_biovolume <-dbGetQuery(con,"SELECT * FROM biovolume WHERE biovolume >0")
+table_prelevement_bio <- dbGetQuery(
+  con,
+  "
+SELECT
+  zone_inv,
+  pb.cd_zone,
+  libelle_zone,
+  pb.id_point_prelev,
+  cd_apt,
+  code_lac,
+  confer,
+  cd_remarque,
+  date_debut_prel_bio date,
+  pb.cd_type_prel_bio,
+  id_campagne_diag,
+  libelle,
+  abondance,
+  biovolume,
+  surface,
+  volume,
+  sym_urf
+FROM prelevement_biologique pb
+LEFT JOIN type_prel_bio tp
+  ON pb.cd_type_prel_bio = tp.cd_type_prel_bio
+LEFT JOIN taxon_denombre td
+  ON pb.id_prelev_bio = td.id_prelev_bio
+INNER JOIN tsa_appellation_taxon_apt ta
+  ON td.cd_taxon = ta.cd_apt
+INNER JOIN point_prel_eaux_surf ppes
+  ON ppes.id_point_prelev = pb.id_point_prelev
+INNER JOIN tsa_unite_mesure_urf tumu
+  ON tumu.cd_urf = td.cd_unite_bio
+LEFT JOIN zone_verticale_prospecte zvp
+  ON zvp.cd_zone = pb.cd_zone
+LEFT JOIN biovolume b
+  ON b.id_taxon_denombre = td.id_taxon_denombre
+WHERE td.cd_taxon IS NOT NULL
+  AND sym_urf <> 'Unité inconnue'
+  AND cd_apt <> '34105'
+  AND libelle <> 'Faune associée aux prélevements IOBL (IOBL+), liaison avec IOBL via ID_PointPrelev'
+  AND libelle <> 'Oligochètes IOBL'
+  AND libelle <> 'Mollusques IMOL'
+  "
+) 
+
+
+
+df_prelevement_bio <- table_prelevement_bio %>%
+  mutate(cd_apt = as.integer(cd_apt)) %>%
+  inner_join(df_noms_taxons, by = c("cd_apt" = "code_base")) %>%
+  mutate(
+    unite = "n/m²",
+    abondance = case_when(
+      sym_urf == "n/(0,1m²)" ~ abondance * 10,
+      sym_urf == "n" ~ abondance / (surface / 10000),
+      TRUE ~ abondance
+      ),
+    libelle = case_when(
+      libelle == "Macroinvertébrés IBL" ~ "macroinvertebres",
+      libelle == "Macroinvertébrés IBL simplifie" ~ "macroinvertebres",
+      TRUE ~ "phytoplancton"
+    )
+  ) %>%
+  dplyr::filter(is.na(abondance) != TRUE, confer != TRUE) %>%
+  group_by(libelle) %>%
+  nest()
+
+###### phytoplanctons avec les données de christophe
+lien_1 <- read_csv("/home/theo/Bureau/Data/Données traits/Synthèse traits/phytoplancton/lien_1.csv")
+lien_2 <- read_csv("/home/theo/Bureau/Data/Données traits/Synthèse traits/phytoplancton/lien_2.csv")
+nom_phyto <- inner_join(lien_1, lien_2, by = "cd_apa") %>% distinct()
+nom_phyto$nom_ref %>%  unique()
+
+df_phytoplancton_christophe <- table_prelevement_bio %>%
+  mutate(cd_apt = as.integer(cd_apt)) %>%
+  inner_join(nom_phyto, by = c("cd_apt" = "cd_taxon")) %>%
+  mutate(
+    unite = "n/m²",
+    abondance = case_when(
+      sym_urf == "n/(0,1m²)" ~ abondance * 10,
+      sym_urf == "n" ~ abondance / (surface / 10000),
+      TRUE ~ abondance
+    ),
+    libelle = "phytoplancton"
+  ) %>%
+  dplyr::filter(is.na(abondance) != TRUE) %>%
+  dplyr::select(-c(zone_inv,cd_remarque,cd_type_prel_bio,surface,volume,sym_urf)) %>% 
+  dplyr::filter(date >= "2005-01-01")
+
+write.csv(df_phytoplancton_christophe, "/home/theo/Bureau/Data/Données finales/communautés/df_phytoplanctons",row.names = FALSE)
+
+df_phytoplancton <- df_prelevement_bio$data[[1]] %>% 
+  dplyr::filter(biovolume>0) %>% 
+  mutate(libelle = "phytoplancton") %>%
+  dplyr::select(-c(zone_inv,confer,cd_remarque,cd_type_prel_bio,surface,volume,sym_urf)) %>% 
+  dplyr::filter(date >= "2005-01-01")
+write.csv(df_phytoplancton , "/home/theo/Bureau/Data/Données finales/communautés/df_phytoplanctons_marine.csv",row.names = FALSE)
+
+
+df_phytoplancton %>% pull(`nom taxon`) %>% unique()
+df_phytoplancton_christophe %>% pull(nom_taxo) %>% unique()
+
+###### macroinv
+df_macroinvertebre <- df_prelevement_bio$data[[2]] %>%
+  mutate(libelle = "macroinvertebres",
+         mois = lubridate::month(date) %>% as.character(),
+         saison = case_when(mois %in% c(7,8,9)~"ete",
+                            mois %in% c(10,11,12)~"aut",
+                            mois %in% c(1,2,3)~"hiv",
+                            TRUE ~ "pri")
+  )
+a <- df_macroinvertebre %>% dplyr::filter(zone_inv == "ZL") 
+a$code_lac %>% unique()
+write.csv(df_macroinvertebre, "/home/theo/Bureau/Data/Données finales/communautés/df_macroinvertebres.csv",row.names = FALSE)
+barplot(count(df_macroinvertebre$mois))
+
+
+############################################# poissons ######################################################
+#77 codes unique
+table_poissons <- dbGetQuery(
+  con,
+  "
+SELECT
+  pp.date_pose,
+  pp.date_releve date,
+  pp.heure_pose,
+  pp.heure_releve,
+  pp.id_point_prelev,
+  pp.id_prelev_poisson,
+  ep.surface_engin,
+  ident_lot,
+  cd_apt,
+  ppes.code_lac,
+  effectif_lot,
+  taille_min_lot,
+  taille_max_lot,
+  taille_ind,
+  poids,
+  mnemo
+FROM lot_prelev_poisson lp
+INNER JOIN tsa_appellation_taxon_apt ta
+  ON lp.cd_taxon = ta.cd_apt
+INNER JOIN prelevement_piscicole pp
+  ON pp.id_prelev_poisson = lp.id_prelev_poisson
+INNER JOIN point_prel_eaux_surf ppes
+  ON ppes.id_point_prelev = pp.id_point_prelev
+INNER JOIN tsa_n434_type_de_lot as tl
+  ON lp.cd_type_lot = tl.cd
+INNER JOIN engin_peche ep
+  ON ep.cd_engin_peche = pp.cd_engin_peche
+AND  maille_end <> '1'
+
+                              "
+)
+
+df_poisson <- table_poissons %>%
+  tbl_df() %>%
+  mutate(cd_apt = as.integer(cd_apt), presence = 1) %>%
+  inner_join(df_noms_taxons, by = c("cd_apt" = "code_base")) %>%
+  dplyr::filter(Embranchement != "Arthropoda") %>%
+  mutate(
+    temps_pose_tot = (lubridate::hms(heure_pose) -  lubridate::hms(heure_releve)) %>% period_to_seconds() /
+      3600,
+    temps_pose_tot = ifelse(
+      temps_pose_tot %>% is.na() == TRUE,
+      12,
+      temps_pose_tot
+    )
+  ) %>% dplyr::select(-starts_with("heure_"))
+
+
+
+
+
+
+df_poisson_tot <- df_poisson %>% 
+  mutate(taille = ifelse(mnemo=="Lot G",(taille_max_lot+taille_min_lot)/2,taille_ind)) %>%
+  group_by(code_lac,date,id_point_prelev,id_prelev_poisson,nom_taxo) %>% 
+  dplyr::summarise(taille = mean(taille,na.rm=TRUE),
+                   abondance_tot = sum(effectif_lot,na.rm=TRUE),
+                   biomasse_tot = sum(poids,na.rm=TRUE))  %>% 
+  mutate(biomasse_tot = ifelse(biomasse_tot==0,NA,biomasse_tot)) %>% 
+  inner_join(df_poisson %>% dplyr::select("code_lac","date","id_point_prelev","id_prelev_poisson","nom_taxo","surface_engin","temps_pose_tot"),
+             by=c("code_lac","date","id_point_prelev","id_prelev_poisson","nom_taxo")) %>% 
+  ungroup() %>% 
+  distinct() %>% 
+  mutate(biomasse = biomasse_tot/temps_pose_tot/surface_engin,
+         abondance = abondance_tot/temps_pose_tot/surface_engin,
+         biomasse_moy = biomasse_tot/abondance_tot) 
+write.csv(df_poisson_tot, "/home/theo/Bureau/Data/Données finales/communautés/df_poissons.csv",row.names = FALSE)
+# df_poisson_3 <- df_poisson %>% 
+#   group_by(id_prelev_poisson,code_lac,id_point_prelev,nom_taxo,niveau_taxo,cd_apt) %>%
+#   nest() %>% 
+#   mutate(biomasse_tot = map_dbl(data, ~ sum(.$poids, na.rm = TRUE)),
+#          taille_mean) %>% 
+#   dplyr::select(-data) %>% 
+#   inner_join(df_poisson,by=c("code_lac","id_prelev_poisson","id_point_prelev","niveau_taxo","cd_apt","nom_taxo")) %>% 
+#   dplyr::select(-c(ident_lot,effectif_lot,taille_min_lot,taille_max_lot,taille_ind,poids,mnemo)) %>% 
+#   distinct() %>% 
+#   mutate(biomasse = biomasse_tot/temps_pose_tot/surface_engin)
+
+# df_poisson_2 <- df_poisson %>%
+#   group_by(id_prelev_poisson, code_lac,cd_apt) %>%
+#   nest() %>%
+#   mutate(
+#     effectif_tot = future_map_dbl(data,  ~ sum(.$effectif_lot, na.rm = TRUE)),
+#     biomasse_tot = future_map_dbl(data, ),
+#     taille_moy_sg = future_map_dbl(
+#       data,
+#       ~ filter(., mnemo != "Lot G") %>%
+#         pull(taille_ind) %>%
+#         mean(na.rm =
+#                TRUE)
+#     ),
+#     taille_moy_g = future_map_dbl(
+#       data,
+#       ~ filter(., mnemo == "Lot G") %>%
+#         summarise(mean_tailleG =
+#                     mean(
+#                       c(taille_min_lot, taille_max_lot), na.rm = TRUE
+#                     )) %>%
+#         as.numeric()
+#     ),
+#     effectif_sg = future_map_dbl(
+#       data,
+#       ~ filter(., mnemo != "Lot G") %>%
+#         pull(taille_ind) %>%
+#         na.omit() %>%
+#         length()
+#     ),
+#     effectif_g = future_map_dbl(data, ~
+#                            filter(., mnemo == "Lot G") %>%
+#                            nrow(.) *
+#                            2),
+#     taille_moy = future_map_dbl(data, ~
+#                            sum(
+#                              c(taille_moy_sg * effectif_sg, taille_moy_g * effectif_g),
+#                              na.rm = TRUE
+#                            ) / (effectif_sg + effectif_g))
+#   ) 
+# 
+# write.csv(df_poisson_3, file = "/home/theo/Bureau/Data/df_poisson_3.csv", row.names=FALSE)
+# 
+# df_poisson_3 <- df_poisson_2%>%
+#   dplyr::select(-4, -c(7:10)) %>%
+#   inner_join(df_poisson, by = c("id_prelev_poisson", "code_lac", "cd_apt")) %>%
+#   dplyr::select(-c(9:15)) %>%
+#   distinct() %>% mutate(biomasse_standardise = biomasse_tot / temps_pose_tot/surface_engin,
+#                         effectif_standardise = effectif_tot / temps_pose_tot/surface_engin,
+#                         ) %>%
+#   arrange(desc(biomasse_standardise))
+# 
+# df_poisson_3 %>% 
+#   ungroup() %>%
+#   group_by(code_lac,Espèce) %>% 
+#   dplyr::summarise(n=ifelse(n()>0,1,0)) %>%
+#   spread(code_lac,n,fill=0) %>% 
+#   ungroup() %>% 
+#   mutate(somme = dplyr::select_if(.,is.numeric) %>% rowSums(),
+#          pourcentage = somme/(length(.)-1)) %>% 
+#   arrange(desc(somme)) %>% 
+#   dplyr::select(Espèce,somme,pourcentage) %>% View()
+# 
+# df_poissons_4 <- df_poisson_3 %>% 
+#   dplyr::select(Espèce,code_lac,biomasse_standardise,typo_pla)%>%
+#   na.omit() %>%
+#   group_by(code_lac,Espèce,typo_pla) %>%
+#   dplyr::summarise(biomasse = mean(biomasse_standardise, na.rm = TRUE)) %>%
+#   na.omit()%>% 
+#   spread(Espèce,biomasse,fill=0)%>%
+#   select_if((ifelse(. > 0,1,0)  %>%
+#                colSums()/nrow(.)*100)>10)
+
+
+
+
+######################################## macrophytes ###############################################
+# 679 codes unique
+table_macrophytes <- dbGetQuery(
+  con,
+  "
+SELECT
+  cd_apt,
+  pm.id_point_prelev,
+  abondance,
+  duom.id_campagne,
+  ppes.code_lac,
+  date_prel date,
+  date_debut_campagne
+FROM taxon_denombre_macro tdm
+INNER JOIN prelevement_macro pm
+  ON tdm.id_prelev_bio_macro = pm.id_prelev_bio_macro
+INNER JOIN point_prel_eaux_surf ppes
+  ON ppes.id_point_prelev = pm.id_point_prelev
+INNER JOIN tsa_appellation_taxon_apt ta
+  ON tdm.code_taxon = ta.cd_apt
+INNER JOIN description_unite_observation_macro duom
+  ON pm.id_point_prelev = duom.id_point_prelev
+INNER JOIN campagne_macrophytes cm
+  ON cm.id_campagne = duom.id_campagne
+                              "
+) %>% tbl_df() %>% mutate(libelle = "macrophytes") %>% glimpse()
+
+
+df_macrophytes <- table_macrophytes %>% 
+  mutate(cd_apt = as.integer(cd_apt),
+         date = as.Date(date)) %>% 
+  inner_join(df_noms_taxons, by=c("cd_apt"="code_base"))
+
+
+
+
+
+
+################################################################################################################
+################################                Les données LAC                       ##########################
+################################################################################################################
+### description des lacs en fonctions de plusieurs variables telle que l'artifitiasition 
+table_typo_lac <- dbGetQuery(con,"SELECT * FROM typo_dce") %>%
+  filter(str_detect(typo_dce,"A"))
+
+table_lac <- dbGetQuery(con,"SELECT * FROM plan_eau")
+unique(table_lac$code_lac) %>% length()
+  table_lac_climat_pla <- dbGetQuery(con,"SELECT * FROM climat_pla") %>% 
+  dplyr::select(-precip_saison_max,precip_saison_min) %>% 
+  as_tibble()
+
+
+table_cru_precipitation_pla <- dbGetQuery(con,"SELECT* FROM cru_precipitation_pla")
+table_cru_temperature_pla <- dbGetQuery(con,"SELECT* FROM cru_temperatures_pla")
+table_cru <- inner_join(table_cru_precipitation_pla,table_cru_temperature_pla, by="code_lac") %>% 
+  setnames(colnames(.),colnames(.) %>% str_replace_all(".x","_prec")%>% str_replace_all(".y","_temp"))
+
+
+PCA(table_cru %>% select_if(is.numeric))
+df_multitaxon_lac <-
+  bind_rows(
+    table_poissons %>%
+      mutate(libelle = "poissons") %>%
+      dplyr::select(libelle, date = date_pose,code_lac),
+    df_macroinvertebre %>% dplyr::select(libelle, date ,id_campagne = id_campagne_diag,code_lac),
+    df_phytoplancton %>% dplyr::select(libelle, date,id_campagne = id_campagne_diag,code_lac),
+    table_macrophytes  %>% mutate(date = as.Date(date)) %>% 
+      dplyr::select(-c(cd_apt,date_debut_campagne))
+  ) 
+
+df_nombre_lac<-df_multitaxon_lac %>%
+  dplyr::select(libelle,code_lac) %>%
+  unique() %>%
+  group_by(libelle) %>%
+  dplyr::summarise(nombre=n())  
+
+
+ggplot(data=df_nombre_lac)+
+  geom_bar( aes(x=reorder(libelle,nombre),y=nombre), stat = "identity")+
+  theme(axis.text.x = element_text(angle =45, hjust = 0.5,vjust=0.5),
+        axis.line = element_line(NULL),
+        panel.grid.major.x = element_blank()) + 
+  geom_text(aes(x=reorder(libelle,nombre),y=nombre,label = nombre), color = "white", vjust = 2)+
+  xlab(NULL)  
+
+
+## nombre de lacs en communs entre les taxons
+df_lac_taxon <- df_multitaxon_lac %>%
+  dplyr::select(code_lac,libelle) %>% 
+  split(.$libelle) %>% 
+  map(~distinct(.) %>% na.omit()) 
+
+df_lac_commun <- df_lac_taxon%>% 
+  join_all(type="inner",by=c("code_lac")) %>% .[,"code_lac"]
+
+df_lac_commun_macroinv <- df_lac_taxon %>%
+  purrr::keep(names(.)!="macroinvertebres") %>% 
+  join_all(type="inner",by=c("code_lac")) %>% 
+  .[,"code_lac"]
+
+
+df_lac <- df_lac_taxon %>% 
+  bind_rows() %>%
+  dplyr::select(-libelle) %>% 
+  distinct() %>% 
+  inner_join(table_lac, by = "code_lac") %>%
+  dplyr::select(-c(nom_lac, nom_carthage,cd_station, district_bassin_dce, ms_cd,periode_etiage,
+                   eu_cd, eu_cd_complexe, code_gene, afb_dr, dcee, rcs, ign_25000_lac,ign_50000_lac,
+                   illies,reference,agence,onema_dir,coord_ypla_centroide,frequence_marnage_pla,usages,
+                   coord_xpla_centroide,typo_dce,coord_xpla_exutoire,coord_ypla_exutoire,commentaires,enquete,rco)) %>% 
+  left_join(data.frame(code_lac=df_lac_commun_macroinv) %>% mutate(lac_commun = "sans_macroinv"), by = "code_lac") %>% 
+  left_join(data.frame(code_lac=df_lac_commun) %>% mutate(lac_commun = "avec_macroinv"), by = "code_lac") %>% as_tibble()
+
+lac <- left_join(df_lac,table_cru, by= "code_lac")
+
+write.csv(df_lac,file = "/home/theo/Bureau/Data/Données finales/df_lac.csv",row.names =FALSE)
+
+############################## JOINTURE TABLEAU LAC, TABLEAU ESPECE ############################################
+df_poissons <- df_poisson_3  %>%
+  ungroup() %>% 
+  mutate(libelle = "poissons")%>%
+  dplyr::select(libelle,id_point_prelev,date,nom_taxo,niveau_taxo,abondance=biomasse,code_lac,Espèce,Genre,Famille,Ordre,Classe,Embranchement,Règne,Variété,Sous.Espèce,Forme,id_prelev_poisson)
+
+df_macrophytes <- df_macrophytes %>% 
+  mutate(cd_apt = as.integer(cd_apt)) %>% 
+  dplyr::select(libelle,id_point_prelev,date,nom_taxo,niveau_taxo,abondance,code_lac,Espèce,Genre,Famille,Ordre,Classe,Embranchement,Règne,Variété,Sous.Espèce,Forme)
+
+df_phyto <- df_phytoplancton %>%
+  dplyr::select(libelle,id_point_prelev,date,nom_taxo,niveau_taxo,abondance,code_lac,Espèce,Genre,Famille,Ordre,Classe,Embranchement,Règne,Variété,Sous.Espèce,Forme)
+
+df_macroinv <- df_macroinvertebre%>% 
+  dplyr::select(libelle,id_point_prelev,date,nom_taxo,niveau_taxo,abondance,code_lac,Espèce,Genre,Famille,Ordre,Classe,Embranchement,Règne,Variété,Sous.Espèce,Forme)
+
+df_tout_taxons <- bind_rows(df_poissons,df_macrophytes,df_phyto,df_macroinv)
+df_lac_taxons <- inner_join(df_tout_taxons,df_lac,by="code_lac")
+
+write.csv(df_lac_taxons,file = "/home/theo/Bureau/Data/df_lac_taxons.csv",row.names =FALSE)
+write.csv(df_poissons,file = "/home/theo/Bureau/Data/Données finales/df_poissons.csv",row.names =FALSE)
+write.csv(df_macrophytes,file = "/home/theo/Bureau/Data/Données finales/df_macrophytes.csv",row.names =FALSE)
+write.csv(df_phyto,file = "/home/theo/Bureau/Data/Données finales/df_phytoplanctons.csv",row.names =FALSE)
+write.csv(df_macroinv,file = "/home/theo/Bureau/Data/Données finales/df_macroinvertebres.csv",row.names =FALSE)
+
+

@@ -1,0 +1,6 @@
+bassin_versants <- sf::st_read("/home/theo/Bureau/Data/BV_lacs/BVE_PE_iso.shp")
+clc_2018 <- sf::st_read("/home/theo/Bureau/Data/BV_lacs/CLC/u2018_clc2018_v2020_20u1_fgdb/DATA/U2018_CLC2018_V2020_20u1.gdb")
+
+plot(a)
+sf::st_read("/home/theo/Bureau/Data/BV_lacs/BVE_PE_iso.shp")
+
